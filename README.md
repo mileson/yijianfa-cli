@@ -18,18 +18,14 @@ CLI 与插件使用同一套平台能力和当前浏览器中的登录状态。�
 
 <table>
 <tr>
-<td width="42%">
+<td width="50%">
 <h3>1. 让 AI 接入一键发</h3>
 <p>安装 CLI 并连接已安装的一键发插件。AI 可以先检查连接和可用平台，再开始处理你的任务。</p>
 </td>
-<td width="58%"><img src="assets/ai-connect.png" alt="AI 连接一键发插件"></td>
-</tr>
-<tr>
-<td width="42%">
+<td width="50%">
 <h3>2. 把发布任务交给 AI</h3>
 <p>告诉 AI 素材文件夹和目标平台。你可以让它先填入，检查后自己确认，也可以明确要求发布。</p>
 </td>
-<td width="58%"><img src="assets/ai-publish.png" alt="一键发将内容发送到多个平台"></td>
 </tr>
 </table>
 
