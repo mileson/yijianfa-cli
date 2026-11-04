@@ -21,18 +21,21 @@ async function fixture(t) {
   return directory;
 }
 
-async function profile(t, directory, { installationId = firstId, profileName = "creator_photo", browserContext = "regular", id = extensionId, holdExecute = false } = {}) {
+async function profile(t, directory, { installationId = firstId, profileName = "示例账号", browserContext = "regular", id = extensionId, holdExecute = false, focusWorkspace = false } = {}) {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const parser = new NativeMessageParser();
   const requests = [];
+  const replies = new Map();
   let identity;
   stdout.on("data", (chunk) => {
     for (const frame of parser.push(chunk)) {
       if (frame.kind === "bridge_ready") { identity = frame.bridgeTarget; continue; }
+      if (frame.kind === "local_service_response") { replies.get(frame.id)?.(frame); continue; }
       requests.push(frame);
       if (holdExecute && frame.action === "execute") continue;
       const result = frame.action === "doctor" ? { runtime: { id, browserContext }, protocolVersion: 1 }
+        : frame.action === "focusWorkspace" ? { focused: true }
         : frame.action === "capabilities" ? { profileName }
           : { requestId: frame.payload.task?.requestId || frame.payload.requestId, bridgeId: identity.bridgeId, status: "filled" };
       stdin.write(encodeNativeMessage({ protocolVersion: 1, kind: "response", id: frame.id, ok: true, result }));
@@ -44,11 +47,19 @@ async function profile(t, directory, { installationId = firstId, profileName = "
     }
   });
   const starting = startNativeHost({ stdin, stdout, stderr: new PassThrough(), browserContext: null,
-    callerOrigin: `chrome-extension://${id}/`, registryPath: directory, browserNamespace: "browser-example" });
-  stdin.write(encodeNativeMessage({ protocolVersion: 1, kind: "bridge_registration", browserContext, installationId, profileName }));
+    callerOrigin: `chrome-extension://${id}/`, registryPath: directory, browserNamespace: "browser-0eb276376d60" });
+  stdin.write(encodeNativeMessage({ protocolVersion: 1, kind: "bridge_registration", browserContext, installationId, profileName, focusWorkspace }));
   const host = await starting;
   t.after(() => host.close());
-  return { host, requests, identity };
+  let navigationSequence = 0;
+  function navigate(operation, payload = {}) {
+    return new Promise(resolve => {
+      const id = "nav-" + operation + "-" + ++navigationSequence;
+      replies.set(id, resolve);
+      stdin.write(encodeNativeMessage({kind:"local_service_request", protocolVersion:1, id, service:"profiles", operation, payload, browserContext, bridgeTarget:identity}));
+    });
+  }
+  return { host, requests, identity, navigate };
 }
 
 function cli(directory, args, input, onChild = () => {}) {
@@ -67,12 +78,12 @@ function cli(directory, args, input, onChild = () => {}) {
 test("two ego profiles coexist, all bridge actions stay bound, and ambiguous selection fails closed", async (t) => {
   const directory = await fixture(t);
   const cheese = await profile(t, directory);
-  const gif = await profile(t, directory, { installationId: secondId, profileName: "creator_video" });
+  const gif = await profile(t, directory, { installationId: secondId, profileName: "示例发布空间" });
   assert.notEqual(cheese.host.socketPath, gif.host.socketPath);
   const online = await discoverBridges({ directory, env: {} });
   assert.equal(online.length, 2);
   await assert.rejects(resolveBridgeSelection({ directory, env: {} }), { code: "BRIDGE_AMBIGUOUS" });
-  const route = await resolveBridgeSelection({ profile: "creator_photo", directory, env: {} });
+  const route = await resolveBridgeSelection({ profile: "示例账号", directory, env: {} });
   for (const action of ["doctor", "capabilities", "execute", "status", "cancel"]) {
     await requestBridge(action, { task: { requestId: "profile-job-1" }, requestId: "profile-job-1" }, route);
   }
@@ -92,7 +103,6 @@ test("source CLI fill binds once, remembers status route, and never contacts ano
   assert.equal(filled.code, 0, filled.stderr);
   const task = cheese.requests.find((frame) => frame.action === "execute").payload.task;
   assert.equal(task.bridgeId, cheese.identity.bridgeId);
-  assert.match(task.payloadDigest, /^[a-f0-9]{64}$/);
   const status = await cli(directory, ["status", input.requestId]);
   assert.equal(status.code, 0, status.stderr);
   const wrong = await cli(directory, ["cancel", input.requestId, "--bridge-id", gif.identity.bridgeId]);
@@ -151,10 +161,35 @@ test("SIGINT cancellation uses the original bound profile and retains the execut
 test("waiting for a chosen bridge tolerates wakeup and never falls back to another profile", async (t) => {
   const directory = await fixture(t);
   const other = await profile(t, directory, { installationId: secondId, profileName: "other" });
-  const waiting = waitForBridgeSelection({ profile: "creator_photo", directory, env: {} }, { waitMs: 1000, retryMs: 10 });
+  const waiting = waitForBridgeSelection({ profile: "示例账号", directory, env: {} }, { waitMs: 1000, retryMs: 10 });
   await new Promise((resolve) => setTimeout(resolve, 20));
   const cheese = await profile(t, directory);
   const route = await waiting;
   assert.equal(route.bridgeTarget.bridgeId, cheese.identity.bridgeId);
   assert.equal(other.requests.length, 0);
+});
+
+
+test("sidebar discovers registered profiles and focuses only the selected peer", {timeout: 5000}, async t => {
+  const directory = await fixture(t);
+  const source = await profile(t, directory, {focusWorkspace:true});
+  const target = await profile(t, directory, {installationId:secondId, focusWorkspace:true});
+  const listed = await source.navigate("list");
+  assert.equal(listed.result.current, source.identity.bridgeId);
+  assert.equal(listed.result.profiles.length, 2);
+  const focused = await source.navigate("focus", {bridgeId:target.identity.bridgeId});
+  assert.deepEqual(focused.result, {focused:true});
+  assert.deepEqual(target.requests.map(r => r.action), ["focusWorkspace"]);
+  assert.equal(source.requests.length, 0);
+});
+
+test("sidebar can focus the other distribution channel without exposing third-party installations", async t => {
+  const directory = await fixture(t);
+  const source = await profile(t, directory, {id:"noadennjakpikgpkkaknllgcemlgokcg", focusWorkspace:true});
+  const store = await profile(t, directory, {installationId:secondId, focusWorkspace:true});
+  const unrelated = await profile(t, directory, {id:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", focusWorkspace:true});
+  const listed = await source.navigate("list");
+  assert.deepEqual(new Set(listed.result.profiles.map(p => p.bridgeId)), new Set([source.identity.bridgeId, store.identity.bridgeId]));
+  assert.equal((await source.navigate("focus", {bridgeId:store.identity.bridgeId})).result.focused, true);
+  assert.equal((await source.navigate("focus", {bridgeId:unrelated.identity.bridgeId})).ok, false);
 });

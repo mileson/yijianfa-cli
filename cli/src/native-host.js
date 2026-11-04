@@ -1,19 +1,25 @@
 import fs from "node:fs";
+import { membershipSharing } from "./membership-sharing.js";
+import { resolveProfileDisplayName } from "./profile-display-name.js";
 import net from "node:net";
 import { once } from "node:events";
 import { createBridgeIdentity, instanceSocketPath, registerBridge, registryDirectory } from "./bridge-registry.js";
 import {
   BROWSER_CONTEXTS,
   DEFAULT_BROWSER_CONTEXT,
+  OFFICIAL_EXTENSION_ID,
   PROTOCOL_VERSION,
   VERSION,
 } from "./constants.js";
-import { BRIDGE_ACTIONS } from "./bridge-client.js";
+import { BRIDGE_ACTIONS, discoverBridges, requestBridge } from "./bridge-client.js";
 import { NdjsonParser, encodeNdjson } from "./ndjson.js";
 import { NativeMessageParser, writeNativeMessage } from "./native-framing.js";
 import { ensureSecureSocketDirectory, extensionIdFromOrigin, getSocketPath } from "./socket-path.js";
 import path from "node:path";
 import { createFeishuDocumentService } from "./feishu-documents.js";
+
+// Only the two known distribution channels may navigate to each other's workbench.
+const navigationChannels = new Set([OFFICIAL_EXTENSION_ID, "noadennjakpikgpkkaknllgcemlgokcg"]);
 
 function log(stream, level, code, message, details) {
   const entry = { level, code, message };
@@ -161,7 +167,31 @@ export async function startNativeHost({
   let unregister = async () => {};
   const documentService = identity ? documentServiceFactory({ directory: path.join(registryPath, 'services', identity.bridgeId) }) : null;
   const serviceRequests = new Set();
-  const describe = () => ({ ...identity, hostVersion: VERSION, routingVersion: identity ? 2 : 1, socketPath: resolvedSocketPath });
+  const displayName = identity && navigationChannels.has(identity.extensionId)
+    ? await resolveProfileDisplayName(identity, registration.profileProof, {platform}) : "";
+  const describe = () => ({ ...identity, displayName, focusWorkspace: registration.focusWorkspace === true, hostVersion: VERSION, routingVersion: identity ? 2 : 1, socketPath: resolvedSocketPath });
+
+  async function profileNavigation(operation, payload) {
+    if (operation.startsWith("membership:")) {
+      // Only macOS currently identifies the native browser owner.
+      if (platform !== "darwin") throw Error("Browser identity unavailable");
+      return membershipSharing(registryPath, identity, operation.slice(11), payload);
+    }
+    const peers = (await discoverBridges({directory: registryPath, browserContext: "regular"}))
+      .filter(peer => peer.identityVerified && peer.focusWorkspace && peer.browserNamespace === identity.browserNamespace && (peer.extensionId === identity.extensionId || (navigationChannels.has(identity.extensionId) && navigationChannels.has(peer.extensionId))))
+      .sort((a,b) => a.bridgeId.localeCompare(b.bridgeId));
+    if (operation === "list") {
+      const profiles = await Promise.all(peers.map(async peer => {
+        const name = peer.displayName || (navigationChannels.has(peer.extensionId)
+          ? await resolveProfileDisplayName(peer, null, {platform}) : "");
+        return {bridgeId: peer.bridgeId, profileName: name || peer.profileName};
+      }));
+      return {current: identity.bridgeId, profiles};
+    }
+    const peer = peers.find(p => p.bridgeId === payload?.bridgeId);
+    if (operation !== "focus" || !peer) throw Error("Profile unavailable");
+    return requestBridge("focusWorkspace", {}, {socketPath: peer.socketPath, bridgeTarget: peer, browserContext: "regular", timeoutMs: 2500});
+  }
 
   const enqueueNative = (message, client) => {
     nativeWriteQueue = nativeWriteQueue
@@ -226,15 +256,16 @@ export async function startNativeHost({
       for (const response of nativeParser.push(chunk)) {
         if (response?.kind === 'local_service_request') {
           const target = response.bridgeTarget;
-          const valid = documentService && response.protocolVersion === PROTOCOL_VERSION && response.browserContext === resolvedBrowserContext &&
-            target?.bridgeId === identity.bridgeId && target?.instanceId === identity.instanceId && response.service === 'feishu_documents' &&
+          const profiles = response.service === 'profiles' && resolvedBrowserContext === 'regular' && registration.focusWorkspace === true;
+          const valid = identity && (profiles || (documentService && response.service === 'feishu_documents')) && response.protocolVersion === PROTOCOL_VERSION && response.browserContext === resolvedBrowserContext &&
+            target?.bridgeId === identity.bridgeId && target?.instanceId === identity.instanceId &&
             typeof response.id === 'string' && !serviceRequests.has(response.id);
           if (!valid) continue;
           serviceRequests.add(response.id);
-          void documentService.handle(response.operation, response.payload).then(
+          void (profiles ? profileNavigation(response.operation, response.payload) : documentService.handle(response.operation, response.payload)).then(
             result => writeNativeMessage(stdout, { kind: 'local_service_response', protocolVersion: PROTOCOL_VERSION, id: response.id, ok: true, result }),
             caught => writeNativeMessage(stdout, { kind: 'local_service_response', protocolVersion: PROTOCOL_VERSION, id: response.id, ok: false,
-              error: { code: caught.code || 'feishu_failed', message: caught.code ? caught.message : '飞书文档操作未完成，请先检查结果' } }),
+              error: { code: caught.code || (profiles ? 'profile_unavailable' : 'feishu_failed'), message: profiles ? '目标窗口暂不可用' : caught.code ? caught.message : '飞书文档操作未完成，请先检查结果' } }),
           ).catch(() => {}).finally(() => serviceRequests.delete(response.id));
           continue;
         }

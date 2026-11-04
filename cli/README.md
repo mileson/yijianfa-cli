@@ -86,12 +86,18 @@ printf '%s\n' '{"type":"dynamic","platforms":["jike"],"data":{"content":"你好"
 
 ### 本次个人声明
 
+小红书图文和短视频可在 `prepare`、`fill`、`publish` 传入内容类型声明，例如 `--xhs-content-declaration "笔记含AI合成内容"`，或 `--xhs-content-declaration "内容来源声明 / 自主拍摄"`。任务 JSON 使用 `data.extra.xiaohongshu.contentDeclaration` 字符串，命令行参数优先。省略时沿用当前账号在该内容类型下的声明预选，未预选则跳过；选项须在发布页可选并完成回读。
+
+自主拍摄支持单独设置拍摄地点、拍摄日期，或两者一起设置。例如在上述命令后加 `--xhs-shoot-location "北京香山" --xhs-shoot-date 2026-11-03`。地点按关键词搜索，选平台返回的第一项；日期不能晚于今天。仅传拍摄参数时会自动选择自主拍摄。任务 JSON 对应 `data.extra.xiaohongshu` 下的 `contentDeclaration: "内容来源声明 / 自主拍摄"`、`shootLocation`、`shootDate`。
+
 `prepare`、`fill`、`publish` 支持 `--personal-declaration true|false`，仅覆盖本次任务，不修改插件保存的默认设置：
 
 ```sh
 yijianfa fill --input task.json --personal-declaration true
 yijianfa fill --input task.json --personal-declaration false
 ```
+
+小红书图文和短视频的定时发布使用 `data.publishTime`，格式为 `YYYY-MM-DD HH:mm`（北京时间），至少提前 1 小时，最远 14 天。不定时则省略此字段。
 
 JSON 也可在 `data` 中传 `"personalDeclaration": true` 或 `false`。省略时沿用目标插件的默认设置；命令参数优先于 JSON 中的任务级值。需要分别设置平台时，使用 `data.extra.<平台>.personalDeclaration`，平台级显式值优先于任务级值。所有值必须是布尔值，JSON 字符串 `"false"` 不接受。`false` 表示本次不自动选择声明，不会清除平台页面原有的声明。适用范围与插件一致：短视频支持小红书、抖音、视频号、快手、B站；图文/动态支持前四个平台。单站重试沿用本次任务快照。
 
@@ -303,3 +309,29 @@ yijianfa publish --input task.json --allow-download false --yes
 图文先在扩展中清洗，图片通过绑定当前安装身份和普通/无痕上下文的 Native 通道分块暂存。创建前保存任务标识，创建后回读正文与图片；未知结果只查询原任务，不自动重建。临时素材在结束时清理，任务记录只保留结果与文档链接，不持久保存正文或凭证。
 
 飞书文档连接兼容 Chrome 的精简 PATH，会查找 npm 用户安装目录并为子进程补齐 Node 路径。页面启动自动探测用户授权与文档权限；可在 `~/.yijianfa/feishu-document-connection.json` 保存已明确选择的 `profile`、`appId`、`userId`（身份元信息，不含凭证）作为文档用途连接。恢复时再次核对三者，不按当前默认应用或连接顺序切换身份。
+
+Agent 可以先运行 `yijianfa capabilities` 查看 `targets.platforms`，再按平台查询，例如：
+
+```sh
+yijianfa targets --platform xiaohongshu --type imageText --kind contentDeclaration --bridge-id "$BRIDGE_ID" --browser-context regular
+```
+
+合集用 `collection`，小红书群聊用 `group`。下拉框读取当前登录账号发布页的选项，返回 `items[].selection` 和对应的任务字段 `selectionPath`，并按账号与内容类型缓存完整列表。`--query` 可过滤名称。地点用 `--kind location --query 北京`，返回可放进任务的地点关键词，不预先列举地点。小红书非原创笔记可指定 `--personal-declaration false --xhs-content-declaration "内容来源声明 / 来源转载"`，以页面实际可选状态为准。
+
+同一次任务可按平台传名称。地点填搜索关键词，群聊填完整群名，合集填完整合集名。例如：
+
+```json
+{"type":"imageText","platforms":["xiaohongshu","douyin"],"data":{"extra":{"xiaohongshu":{"collection":"景点拍照","location":"香山公园","group":"摄影交流群"},"douyin":{"collection":"拍摄教程","location":"北京"}}}}
+```
+
+`targets` 返回的 `selectionPath` 指向对应平台。实时读取失败时，小红书群聊和合集可返回当前登录账号、同一内容类型上次获取的列表，结果标为 `source: "cache"` 并附原获取时间。首次获取仍需要平台返回列表。
+
+微信公众号贴图使用 `type: "imageText"` 和平台 `weixin`。可用 `targets --platform weixin --type imageText --kind collection` 或 `--kind creationSource` 读取当前账号的选项。任务示例：
+
+```json
+{"type":"imageText","platforms":["weixin"],"data":{"title":"周末散步","extra":{"weixin":{"location":"北京市中心","collection":"生活记录","creationSource":"个人观点，仅供参考"}}},"assets":[{"path":"/absolute/path/photo.jpg"}]}
+```
+
+位置按关键词选择附近搜索的首条结果，合集和创作来源按名称匹配。贴图最多一个合集，显式合集优先于标签映射。执行结果按草稿保存后的页面读回返回。
+
+「素材来源官方媒体/网络新闻」涉及额外来源信息，请在公众号编辑页手动设置。

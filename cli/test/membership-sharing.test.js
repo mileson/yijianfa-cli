@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { membershipSharing } from '../src/membership-sharing.js';
+test('trusted channels share only one unambiguous regular account within a browser', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'membership-test-'));
+  t.after(()=>fs.rm(dir,{force:true,recursive:true}));
+  const local = {browserNamespace:'ego', browserContext:'regular', extensionId:'noadennjakpikgpkkaknllgcemlgokcg'};
+  const store = {...local,extensionId:'dmcejnbkknlkpcbaggoeiminccbpliaj'};
+  const invoke = (id, op, extra = {}) => membershipSharing(dir,id,op,{origin:'https://yijianfa.ainativehub.com', ...extra});
+  const token = 'x'.repeat(43), other = 'y'.repeat(43);
+  await invoke(local,'offer',{token, accountId:'A'});
+  assert.equal((await invoke(store,'restore')).token,token);
+  assert.equal((await invoke({...store,browserNamespace:'chrome'},'restore')).token,null);
+  await assert.rejects(invoke({...store,browserContext:'incognito'},'restore'));
+  await assert.rejects(invoke({...store,extensionId:'unknown'},'restore'));
+  await invoke(store,'offer',{token:other,accountId:'B'});
+  assert.equal((await invoke(local,'restore')).token,null);
+  await invoke(store,'forget',{token:other});
+  assert.equal((await invoke(local,'restore')).token,token);
+});

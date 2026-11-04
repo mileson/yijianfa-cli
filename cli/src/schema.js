@@ -1,3 +1,4 @@
+import destinationPolicy from "./shared/destination-policy.js";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -83,7 +84,19 @@ function validatePublishGuard(data, platforms, { allowUnselectedPlatforms = fals
   }
 }
 
+function validXhsSchedule(value, now = Date.now()) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/.test(value)) return false;
+  const minute = value.replace(" ", "T");
+  const stamp = Date.parse(minute + ":00+08:00");
+  return stamp >= now + 3600000 && stamp <= now + 14 * 86400000 &&
+    new Date(stamp + 8 * 3600000).toISOString().slice(0, 16) === minute;
+}
+
 function validatePlatformDataRules(type, platforms, data) {
+  if (["imageText", "shortVideo"].includes(type) && platforms.includes("xiaohongshu") &&
+      data?.publishTime !== undefined && data.publishTime !== "" && !validXhsSchedule(data.publishTime)) {
+    throw inputError("小红书定时发布请按北京时间填写 data.publishTime（YYYY-MM-DD HH:mm），至少提前 1 小时，最远 14 天。", {platform:"xiaohongshu", field:"publishTime"});
+  }
   if (type !== "shortVideo" || !platforms.includes("shipinhao") || data.title === undefined) return;
   if (typeof data.title !== "string") {
     throw inputError("视频号短视频 data.title 必须是字符串");
@@ -173,6 +186,7 @@ export function normalizeInput(value, { uuid = randomUUID, browserContext: reque
   const data = value.data === undefined ? {} : value.data;
   if (!isPlainObject(data)) throw inputError("data 必须是 JSON 对象");
   validateJsonValue(data);
+  try { destinationPolicy.validate(value.type, platforms, data); } catch (error) { throw inputError(error.message); }
   if (data.personalDeclaration !== undefined && typeof data.personalDeclaration !== "boolean") {
     throw inputError("data.personalDeclaration 必须是布尔值");
   }
@@ -180,7 +194,23 @@ export function normalizeInput(value, { uuid = randomUUID, browserContext: reque
     throw inputError("data.allowDownload 必须是布尔值");
   }
   for (const [platform, settings] of Object.entries(data.extra || {})) {
-    if (settings?.collection !== undefined) throw inputError("合集预选已停用，请在平台页面选择合集");
+    if (platform === 'xiaohongshu' && (settings?.shootLocation !== undefined || settings?.shootDate !== undefined)) {
+      const {shootLocation, shootDate} = settings;
+      const today = new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'});
+      if (settings.contentDeclaration !== '内容来源声明 / 自主拍摄' ||
+          (shootLocation !== undefined && (typeof shootLocation !== 'string' || !shootLocation.trim() || shootLocation.length > 200)) ||
+          (shootDate !== undefined && (typeof shootDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(shootDate) ||
+            !Number.isFinite(Date.parse(shootDate)) || new Date(shootDate).toISOString().slice(0,10) !== shootDate || shootDate > today))) {
+        throw inputError("拍摄信息需要自主拍摄声明、有效地点关键词或非未来日期 YYYY-MM-DD");
+      }
+    }
+    if (platform === 'xiaohongshu' && settings?.contentDeclaration !== undefined) {
+      const name = settings.contentDeclaration;
+      if (!['imageText','shortVideo'].includes(value.type) || (platforms.length && !platforms.includes('xiaohongshu')) ||
+          typeof name !== 'string' || !name.trim() || name.length > 200 || name.trim() === '内容来源声明') {
+        throw inputError("小红书内容类型声明需要图文或短视频任务及完整声明名称");
+      }
+    }
     if (settings?.allowDownload !== undefined && typeof settings.allowDownload !== "boolean") {
       throw inputError(`data.extra.${platform}.allowDownload 必须是布尔值`);
     }

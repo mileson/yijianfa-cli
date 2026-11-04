@@ -14,7 +14,7 @@ import { CliError, remoteErrorToCliError } from "./errors.js";
 import { NdjsonParser, encodeNdjson } from "./ndjson.js";
 import { getSocketCandidates } from "./socket-path.js";
 
-export const BRIDGE_ACTIONS = new Set(["doctor", "capabilities", "execute", "transfer", "targets", "status", "cancel", "describe"]);
+export const BRIDGE_ACTIONS = new Set(["doctor", "capabilities", "execute", "transfer", "targets", "status", "cancel", "describe", "focusWorkspace"]);
 
 function bridgeError(code, message, details, cause) {
   return new CliError(code, message, {

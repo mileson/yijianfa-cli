@@ -34,9 +34,14 @@ const FLAG_DEFINITIONS = new Map([
   ["--bridge-id", { name: "bridgeId", value: true }],
   ["--profile", { name: "profile", value: true }],
   ["--input", { name: "input", value: true }],
+  ["--xhs-shoot-location", { name: "xhsShootLocation", value: true }],
+  ["--xhs-shoot-date", { name: "xhsShootDate", value: true }],
+  ["--xhs-content-declaration", { name: "xhsContentDeclaration", value: true }],
   ["--personal-declaration", { name: "personalDeclaration", value: true }],
   ["--allow-download", { name: "allowDownload", value: true }],
   ["--request-id", { name: "requestId", value: true }],
+  ["--kind", {name:"kind",value:true}],
+  ["--type", {name:"type",value:true}],
   ["--platform", { name: "platform", value: true }],
   ["--query", { name: "query", value: true }],
   ["--content", { name: "content", value: true }],
@@ -61,11 +66,11 @@ const FLAGS_BY_COMMAND = Object.freeze({
   bridges: new Set(["browserContext", "timeout", "help"]),
   doctor: new Set(["bridgeId", "profile", "browserContext", "timeout", "wait", "repair", "help"]),
   capabilities: new Set(["bridgeId", "profile", "browserContext", "timeout", "help"]),
-  targets: new Set(["bridgeId", "profile", "browserContext", "timeout", "platform", "query", "content", "help"]),
+  targets: new Set(["bridgeId", "profile", "browserContext", "timeout", "platform", "kind", "type", "query", "content", "help"]),
   transfer: new Set(["bridgeId", "profile", "browserContext", "timeout", "requestId", "from", "to", "url", "mode", "yes", "dryRun", "help"]),
-  prepare: new Set(["bridgeId", "profile", "browserContext", "input", "personalDeclaration", "allowDownload", "help"]),
-  fill: new Set(["bridgeId", "profile", "browserContext", "input", "personalDeclaration", "allowDownload", "dryRun", "help"]),
-  publish: new Set(["bridgeId", "profile", "browserContext", "input", "personalDeclaration", "allowDownload", "dryRun", "yes", "help"]),
+  prepare: new Set(["bridgeId", "profile", "browserContext", "input", "xhsContentDeclaration", "xhsShootLocation", "xhsShootDate", "personalDeclaration", "allowDownload", "help"]),
+  fill: new Set(["bridgeId", "profile", "browserContext", "input", "xhsContentDeclaration", "xhsShootLocation", "xhsShootDate", "personalDeclaration", "allowDownload", "dryRun", "help"]),
+  publish: new Set(["bridgeId", "profile", "browserContext", "input", "xhsContentDeclaration", "xhsShootLocation", "xhsShootDate", "personalDeclaration", "allowDownload", "dryRun", "yes", "help"]),
   status: new Set(["bridgeId", "profile", "browserContext", "requestId", "timeout", "help"]),
   cancel: new Set(["bridgeId", "profile", "browserContext", "requestId", "timeout", "help"]),
   "install-host": new Set(["extensionId", "help"]),
@@ -175,9 +180,14 @@ function helpResult(command) {
       documentTarget: '飞书目标的 publish 表示创建云文档',
       recovery: '断线后使用 status [requestId] 查询当前连接的任务，不要换 ID 重发',
     },
-    targets: {usage:'yijianfa targets --platform jike|juejin|douban|douban-group [--query <keyword>] [--content <jike-post>]', discover:'capabilities.targets', selection:'豆瓣小组使用 items[].selection，填入 data.extra.douban；不会自动选择第一个结果'},
+    targets: {usage:'yijianfa targets --platform <平台> [--kind collection|group|contentDeclaration|creationSource|location] [--type imageText|shortVideo] [--query <keyword>] [--content <jike-post>]', discover:'capabilities.targets', selection:'豆瓣小组使用 items[].selection，填入 data.extra.douban；不会自动选择第一个结果'},
     expectedAccounts: "deprecated; accepted and ignored; never ask for account names or nicknames",
     publishGuard: { version: 1, requirePublicUrl: true, expectedTargets: "Jike circle required; Juejin circle supported" },
+    xhsSchedule: "小红书定时发布请按北京时间填写 data.publishTime（YYYY-MM-DD HH:mm），至少提前 1 小时，最远 14 天。",
+    destinations: "data.extra.<平台>.collection 填合集名，location 填地点关键词，xiaohongshu.group 填完整群名，公众号贴图 weixin.creationSource 填创作来源名称；targets 返回 selectionPath。",
+    xhsShootLocation: "--xhs-shoot-location <拍摄地点关键词>",
+    xhsShootDate: "--xhs-shoot-date <YYYY-MM-DD>",
+    xhsContentDeclaration: "--xhs-content-declaration <完整名称或内容来源声明 / 子项> (prepare/fill/publish)",
     personalDeclaration: {
       flag: "--personal-declaration true|false (prepare/fill/publish); overrides data.personalDeclaration",
       task: "data.personalDeclaration: optional boolean; omitted uses extension preference",
@@ -276,10 +286,19 @@ async function readUtf8File(filePath) {
 async function loadInput(options) {
   const source = options.input || "stdin";
   const text = await readUtf8File(options.input || "-");
-  const input = normalizeInput(parseInputJson(text, source), { browserContext: options.browserContext });
+  const raw = parseInputJson(text, source);
+  if ([options.xhsContentDeclaration, options.xhsShootLocation, options.xhsShootDate].some(v => v !== undefined) && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    raw.data ??= {};
+    const extra = raw.data.extra || {};
+    raw.data.extra = {...extra, xiaohongshu:{...extra.xiaohongshu, contentDeclaration:options.xhsContentDeclaration ?? extra.xiaohongshu?.contentDeclaration ?? "内容来源声明 / 自主拍摄",
+      ...(options.xhsShootLocation !== undefined && {shootLocation:options.xhsShootLocation}), ...(options.xhsShootDate !== undefined && {shootDate:options.xhsShootDate})}};
+  }
+  if (options.personalDeclaration !== undefined && raw && typeof raw === 'object') {
+    raw.data = {...raw.data, personalDeclaration:options.personalDeclaration};
+  }
+  const input = normalizeInput(raw, { browserContext: options.browserContext });
   if (options.bridgeId && input.bridgeId && options.bridgeId !== input.bridgeId) throw commandError("输入 bridgeId 与 --bridge-id 不一致");
   if (options.bridgeId) input.bridgeId = options.bridgeId;
-  if (options.personalDeclaration !== undefined) input.data = { ...input.data, personalDeclaration: options.personalDeclaration };
   if (options.allowDownload !== undefined) input.data = { ...input.data, allowDownload: options.allowDownload };
   return input;
 }
@@ -556,8 +575,8 @@ export async function runParsedCommand(parsed) {
       });
     case "targets": {
       assertNoPositionals(parsed);
-      const {platform,query,content} = parsed.options;
-      if (!['jike','juejin','douban','douban-group'].includes(platform)) throw commandError('--platform 必须是 jike、juejin、douban 或 douban-group');
+      const {platform,kind,type,query,content} = parsed.options;
+      if (!['jike','juejin','douban','douban-group','weixin','xiaohongshu','douyin','kuaishou','shipinhao'].includes(platform)) throw commandError('请用 --platform 指定支持的平台');
       if ((query?.length || 0) > 200 || (content?.length || 0) > 20000) throw commandError('关键词或正文过长');
       if (content !== undefined && platform !== 'jike') throw commandError('只有即刻支持 --content 正文推荐');
       if (query?.trim() && content?.trim()) throw commandError('--query 与 --content 请分开使用');
@@ -565,7 +584,11 @@ export async function runParsedCommand(parsed) {
       const bridgeOptions = {...route,browserContext:parsed.options.browserContext,timeoutMs};
       const capabilities = await requestBridge('capabilities',{},bridgeOptions);
       if (capabilities?.targets?.version !== 1 || !capabilities.targets.platforms?.[platform]) throw commandError('当前扩展不支持目标获取，请更新扩展后重试');
-      return await requestBridge('targets',{platform,...(query !== undefined ? {query} : {}),...(content !== undefined ? {content} : {})},bridgeOptions);
+      const targetSpec = capabilities.targets.platforms[platform];
+      if (targetSpec.kinds && !targetSpec.kinds.includes(kind)) throw commandError('--kind 可选 ' + targetSpec.kinds.join(', '));
+      if (type && !targetSpec.types?.includes(type)) throw commandError('--type 不适用于该平台或内容类型');
+      if (kind && !targetSpec.kinds) throw commandError('该平台无须指定 --kind');
+      return await requestBridge('targets',{platform,...(kind ? {kind} : {}),...(type ? {type} : {}),...(query !== undefined ? {query} : {}),...(content !== undefined ? {content} : {})},bridgeOptions);
     }
     case "transfer": {
       assertNoPositionals(parsed);

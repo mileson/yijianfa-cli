@@ -192,7 +192,7 @@ test("publish guard accepts legacy accounts and requires Jike target and public 
       content: "hello",
       publishGuard: {
         version: 1,
-        expectedAccounts: { x: "example_x_user", threads: "example_threads_user", jike: "example_creator" },
+        expectedAccounts: { x: "creator_example", threads: "creator_example_2", jike: "示例用户" },
         expectedTargets: { jike: "AI探索站" },
         requirePublicUrl: true,
       },
@@ -209,7 +209,7 @@ test("publish guard accepts legacy accounts and requires Jike target and public 
       extra: { juejin: { topic: "大模型生态圈" } },
       publishGuard: {
         version: 1,
-        expectedAccounts: { juejin: "example_creator" },
+        expectedAccounts: { juejin: "示例用户" },
         expectedTargets: { juejin: "大模型生态圈" },
         requirePublicUrl: true,
       },
@@ -223,7 +223,7 @@ test("publish guard accepts legacy accounts and requires Jike target and public 
       data: {
         publishGuard: {
           version: 1,
-          expectedAccounts: { x: "example_x_user" },
+          expectedAccounts: { x: "creator_example" },
           expectedTargets: { jike: "AI探索站" },
           requirePublicUrl: true,
         },
@@ -237,7 +237,7 @@ test("publish guard accepts legacy accounts and requires Jike target and public 
       data: {
         publishGuard: {
           version: 1,
-          expectedAccounts: { jike: "example_creator" },
+          expectedAccounts: { jike: "示例用户" },
           expectedTargets: {},
           requirePublicUrl: true,
         },
@@ -252,7 +252,7 @@ test("publish guard accepts legacy accounts and requires Jike target and public 
       data: {
         publishGuard: {
           version: 1,
-          expectedAccounts: { x: "example_x_user" },
+          expectedAccounts: { x: "creator_example" },
           expectedTargets: {},
           requirePublicUrl: false,
         },
@@ -380,4 +380,18 @@ test('Douban groups require a bounded name and the account returned by targets',
   }
   assert.throws(()=>normalizeInput({...input,type:'article'}),/dynamic/);
   assert.throws(()=>normalizeInput({...input,platforms:['x']}),/douban/);
+});
+
+test("小红书图文与视频按北京时间校验定时边界", (t) => {
+  t.mock.method(Date, "now", () => Date.parse("2026-11-04T12:00:00+08:00"));
+  for (const type of ["imageText", "shortVideo"]) {
+    const input = publishTime => ({ type, platforms: ["xiaohongshu"], data: { publishTime } });
+    for (const time of ["2026-11-04 13:00", "2026-11-18 12:00"]) {
+      assert.equal(normalizeInput(input(time)).data.publishTime, time);
+    }
+    for (const time of ["2026-11-04 12:59", "2026-11-18 12:01", "2026-11-28 20:31", "明天下午"]) {
+      assert.throws(() => normalizeInput(input(time)), /data.publishTime.*14 天/);
+    }
+    assert.doesNotThrow(() => normalizeInput({ ...input("2026-11-28 20:31"), platforms: ["douyin"] }));
+  }
 });
