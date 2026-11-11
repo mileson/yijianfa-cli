@@ -9,7 +9,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const validToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{32,128}$/.test(value);
 export async function membershipSharing(root, identity, operation, payload = {}) {
   if (identity.browserContext !== 'regular' || !['dmcejnbkknlkpcbaggoeiminccbpliaj','noadennjakpikgpkkaknllgcemlgokcg'].includes(identity.extensionId) ||
-      payload.origin !== 'https://yijianfa.ainativehub.com') throw Error('Unavailable');
+      !['https://yijianfa.moticlaw.com', 'https://yijianfa.ainativehub.com'].includes(payload.origin)) throw Error('Unavailable');
   const dir = path.join(root, 'membership-' + hash(identity.browserNamespace || 'default'));
   await ensureSecureSocketDirectory(path.join(root, 'registry.sock'));
   await fs.mkdir(dir, {recursive: true, mode: 0o700});

@@ -21,3 +21,21 @@ test('trusted channels share only one unambiguous regular account within a brows
   await invoke(store,'forget',{token:other});
   assert.equal((await invoke(local,'restore')).token,token);
 });
+test('new and legacy domains share existing sessions while untrusted origins are rejected', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'membership-domain-test-'));
+  t.after(() => fs.rm(dir, {force:true, recursive:true}));
+  const identity = {browserNamespace:'chrome', browserContext:'regular', extensionId:'dmcejnbkknlkpcbaggoeiminccbpliaj'};
+  const legacy = 'https://yijianfa.ainativehub.com';
+  const current = 'https://yijianfa.moticlaw.com';
+  const invoke = (origin, operation, extra = {}) => membershipSharing(dir, identity, operation, {origin, ...extra});
+  const token = 'z'.repeat(43);
+  await invoke(legacy, 'offer', {token, accountId:'existing-account'});
+  assert.equal((await invoke(current, 'restore')).token, token);
+  await invoke(current, 'offer', {token, accountId:'existing-account'});
+  assert.equal((await invoke(legacy, 'restore')).token, token);
+  for (const origin of ['http://yijianfa.moticlaw.com', 'https://yijianfa.moticlaw.com.evil.test', 'https://moticlaw.com', current + '/']) {
+    await assert.rejects(invoke(origin, 'restore'));
+  }
+  await invoke(current, 'forget', {token});
+  assert.equal((await invoke(legacy, 'restore')).token, null);
+});

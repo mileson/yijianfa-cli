@@ -1,6 +1,6 @@
 {
   "name": "@yijianfa/cli",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "description": "一键发 Chrome 扩展的本地 Agent CLI 与 Native Messaging 桥",
   "type": "module",
   "engines": {

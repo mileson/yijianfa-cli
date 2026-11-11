@@ -117,7 +117,7 @@ export async function discoverExtensionIds({ platform = process.platform, home =
             } catch (_error) {}
           }
           if (!EXTENSION_ID_PATTERN.test(id)) continue;
-          if (manifest.name === "一键发" || manifest.homepage_url === "https://yijianfa.ainativehub.com") ids.add(id);
+          if (manifest.name === "一键发" || ["https://yijianfa.moticlaw.com", "https://yijianfa.ainativehub.com"].includes(manifest.homepage_url)) ids.add(id);
         }
       } catch (_error) {
         // 单个 profile 的偏好文件可能被 Chrome 原子替换；继续检查其他来源。
