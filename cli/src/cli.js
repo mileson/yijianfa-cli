@@ -180,7 +180,7 @@ function helpResult(command) {
       documentTarget: '飞书目标的 publish 表示创建云文档',
       recovery: '断线后使用 status [requestId] 查询当前连接的任务，不要换 ID 重发',
     },
-    targets: {usage:'yijianfa targets --platform <平台> [--kind collection|group|contentDeclaration|creationSource|location] [--type imageText|shortVideo] [--query <keyword>] [--content <jike-post>]', discover:'capabilities.targets', selection:'豆瓣小组使用 items[].selection，填入 data.extra.douban；不会自动选择第一个结果'},
+    targets: {usage:'yijianfa targets --platform <平台> [--kind collection|group|contentDeclaration|creationSource|location] [--type imageText|shortVideo] [--query <keyword>] [--content <jike-post>]', discover:'capabilities.targets', selection:'豆瓣小组使用 items[].selection；知识星球动态将选中的 items[].id 填入 data.extra.zsxq.groupIds'},
     expectedAccounts: "deprecated; accepted and ignored; never ask for account names or nicknames",
     publishGuard: { version: 1, requirePublicUrl: true, expectedTargets: "Jike circle required; Juejin circle supported" },
     xhsSchedule: "小红书定时发布请按北京时间填写 data.publishTime（YYYY-MM-DD HH:mm），至少提前 1 小时，最远 14 天。",
@@ -397,9 +397,12 @@ async function executePrepared(prepared, { confirmed, selection = {} }) {
     attemptTimeoutMs: 1_000,
     retryMs: 250,
   });
-  if (prepared.data.extra?.douban?.groupName) {
+  const needsDoubanGroup = Boolean(prepared.data.extra?.douban?.groupName);
+  const needsZsxqGroups = Array.isArray(prepared.data.extra?.zsxq?.groupIds);
+  if (needsDoubanGroup || needsZsxqGroups) {
     const capabilities = await requestBridge('capabilities', {}, {...route, browserContext:prepared.browserContext});
-    if (capabilities?.doubanGroupSelection?.version !== 1) throw commandError('当前扩展不支持豆瓣小组自动选择，请更新扩展后重试');
+    if (needsDoubanGroup && capabilities?.doubanGroupSelection?.version !== 1) throw commandError('当前扩展不支持豆瓣小组自动选择，请更新扩展后重试');
+    if (needsZsxqGroups && capabilities?.zsxqGroupSelection?.version !== 1) throw commandError('当前扩展不支持知识星球动态多选，请更新扩展后重试');
   }
   const assetServer = await startAssetServer(prepared.assets);
   let cancelStarted = false;
@@ -576,7 +579,7 @@ export async function runParsedCommand(parsed) {
     case "targets": {
       assertNoPositionals(parsed);
       const {platform,kind,type,query,content} = parsed.options;
-      if (!['jike','juejin','douban','douban-group','weixin','xiaohongshu','douyin','kuaishou','shipinhao'].includes(platform)) throw commandError('请用 --platform 指定支持的平台');
+      if (!['jike','juejin','douban','douban-group','zsxq','weixin','xiaohongshu','douyin','kuaishou','shipinhao'].includes(platform)) throw commandError('请用 --platform 指定支持的平台');
       if ((query?.length || 0) > 200 || (content?.length || 0) > 20000) throw commandError('关键词或正文过长');
       if (content !== undefined && platform !== 'jike') throw commandError('只有即刻支持 --content 正文推荐');
       if (query?.trim() && content?.trim()) throw commandError('--query 与 --content 请分开使用');

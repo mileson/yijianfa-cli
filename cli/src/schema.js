@@ -93,6 +93,14 @@ function validXhsSchedule(value, now = Date.now()) {
 }
 
 function validatePlatformDataRules(type, platforms, data) {
+  const zsxq = data?.extra?.zsxq;
+  if (zsxq?.groupIds !== undefined && (
+    type !== "dynamic" || (platforms.length && !platforms.includes("zsxq")) ||
+    zsxq.groupId !== undefined || !Array.isArray(zsxq.groupIds) || !zsxq.groupIds.length ||
+    zsxq.groupIds.some(id => typeof id !== "string" || !/^[\w-]+$/.test(id))
+  )) {
+    throw inputError("知识星球动态的 data.extra.zsxq.groupIds 需要至少一个有效星球编号，请与 groupId 择一使用。");
+  }
   if (["imageText", "shortVideo"].includes(type) && platforms.includes("xiaohongshu") &&
       data?.publishTime !== undefined && data.publishTime !== "" && !validXhsSchedule(data.publishTime)) {
     throw inputError("小红书定时发布请按北京时间填写 data.publishTime（YYYY-MM-DD HH:mm），至少提前 1 小时，最远 14 天。", {platform:"xiaohongshu", field:"publishTime"});

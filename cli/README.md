@@ -125,6 +125,7 @@ JSON 也可在 `data` 中传 `"personalDeclaration": true` 或 `false`。省略�
 - `requestId` 可省略；CLI 会生成 UUID。也可传 8 到 128 位的字母、数字、点、下划线、冒号或连字符安全标识。相同业务请求应复用同一 ID。
 - `browserContext` 只能是 `regular` 或 `incognito`，省略时为 `regular`。如果同时传入 `--browser-context`，两者必须完全一致，否则在本机校验阶段拒绝。
 - `comboName` 是插件里保存的发布组合名称。提供后可省略 `platforms`；扩展会读取该组合的平台顺序、公共标签、平台专属标签以及圈子/分组目标。运行 `yijianfa capabilities` 可读取当前可用的 `publishCombos`。
+- 知识星球动态可用 `yijianfa targets --platform zsxq` 获取星球编号，把选中的 `items[].id` 按顺序填到 `data.extra.zsxq.groupIds` 数组。填入和发布都会逐个处理，每个星球单独返回结果。显式选择会覆盖发布组合中的星球，单个星球也可继续使用 `data.extra.zsxq.groupId`。使用数组需要扩展支持 `capabilities.zsxqGroupSelection.version=1`。
 - `groupName` 可省略，只覆盖本次任务的 Chrome Tab 分组显示名；未传时使用组合名称。同名不会自动合并分组。
 - 同一发布任务分多次执行时，首个 `fill` 或 `publish` 的回执 `result.tabGroupId` 可用于后续请求：在输入 JSON 传入 `"tabGroupId": 123`（替换为实际回执值），并沿用同一 `--bridge-id` 和 `--browser-context`。每次执行使用独立的 `requestId`，继续读取最新回执中的 `result.tabGroupId`。原分组关闭、浏览器会话变化或不在当前窗口时，会创建新分组并返回新标识；没有打开标签页或浏览器不支持分组时可能没有标识。不要根据名称猜测或复用其他任务的分组。
 - `type` 是 `dynamic`、`imageText`、`article`或 `shortVideo`。
